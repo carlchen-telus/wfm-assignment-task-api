@@ -1,7 +1,8 @@
 package com.telus.workforcemgmt.dto.assignmentmanagement;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,27 +13,34 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.telus.workforcemgmt.assignment.utils.WorkOrderDifference;
 import com.telus.workforcemgmt.dto.Difference;
+import com.telus.workforcemgmt.dto.*;
 
 public class WorkOrderDtoTest {
+	
+	private Gson createGson() {
+		GsonBuilder gsonBuilder = new GsonBuilder();
+		gsonBuilder.registerTypeAdapter(LocalDate.class, new LocalDateGsonSerializer());
+		gsonBuilder.registerTypeAdapter(LocalDateTime.class, new LocalDateTimeGsonSerializer());
+		gsonBuilder.registerTypeAdapter(ZonedDateTime.class, new ZonedDateTimeGsonSerializer());
+		Gson gson = gsonBuilder.setPrettyPrinting().create();
+		return gson;
+	}
 	
 	@Test
 	public void testEqualWorkOrderDtos() throws JsonMappingException, JsonProcessingException {
 		WorkOrderDto workOrder = createWorkOrderDto();
 		
-		Gson gson = new Gson();    
+		Gson gson = createGson();    
 	    String json = gson.toJson(workOrder);
 	    System.out.println(json);   
 	    
 	    
-	    Map<String,Object> result =
-	            new ObjectMapper().readValue(json, HashMap.class);
+	    Map<String,Object> result = gson.fromJson(json, HashMap.class);
+	    Map<String,Object> result2 = gson.fromJson(json, HashMap.class);
 
-	    Map<String,Object> result2 =
-	            new ObjectMapper().readValue(json, HashMap.class);
-	    
-	    System.out.println(json);
 	    List<Difference> diff = WorkOrderDifference.diff(result, result2);
 	    json = gson.toJson(diff);
 	    System.out.println("difference:" + json);  
@@ -46,7 +54,7 @@ public class WorkOrderDtoTest {
 				.requiredSkillList(new TeamWorkerSkill[] {new TeamWorkerSkill("DST", "2.0"), new TeamWorkerSkill("POTS", "1.0")})
 				.build();
 		
-		Gson gson = new Gson();    
+		Gson gson = createGson();    
 	    String json = gson.toJson(workOrder);
 	    String json2= gson.toJson(workOrder2);
 	    System.out.println(json);   
@@ -66,10 +74,10 @@ public class WorkOrderDtoTest {
 	public void testWorkOrderAttributeDifference() throws JsonMappingException, JsonProcessingException {
 		WorkOrderDto workOrder = createWorkOrderDto();
 		WorkOrderDto workOrder2 = workOrder.toBuilder()
-				.workOrderAttributeList(new TypeCode[] {new TypeCode("TYPE0", "TYPE0ValueUpdate"), new TypeCode("TYPE3", "TYPE3Value")})
+				.workOrderAttributeList(Map.of("TYPE0", "TYPE0ValueUpdate", "TYPE3", "TYPE3Value"))
 				.build();
 		
-		Gson gson = new Gson();    
+		Gson gson = createGson();    
 	    String json = gson.toJson(workOrder);
 	    String json2= gson.toJson(workOrder2);
 	    System.out.println(json);   
@@ -96,7 +104,7 @@ public class WorkOrderDtoTest {
 				.estimatedDurationNum(2.0d)
 				.statusCd("CANCELLED")
 				.componentNumber(1)
-				.componentRemarkList(new TypeCode[] {new TypeCode("RMK1", "TYPE0Value"), new TypeCode("RMK2", "TYPE1Value")})
+				.componentRemarkList(Map.of("RMK1", "TYPE0Value", "RMK2", "TYPE1Value"))
 				.componentRequiredSkillList(new TeamWorkerSkill[] {new TeamWorkerSkill("COMPDST", "1.0"), new TeamWorkerSkill("COMPPOTS", "2.0")})
 				.build();
 		
@@ -104,10 +112,10 @@ public class WorkOrderDtoTest {
 				.build();
 		
 		WorkOrderDto workOrder2 = workOrder.toBuilder()
-				.componentList(new Component[] {comp1, comp2})
+				.componentList(Map.of(comp1.getOriginatingSystemWorkOrderId(), comp1))
 				.build();
 		
-		Gson gson = new Gson();    
+		Gson gson = createGson();    
 	    String json = gson.toJson(workOrder);
 	    String json2= gson.toJson(workOrder2);
 	    System.out.println(json);   
@@ -138,10 +146,10 @@ public class WorkOrderDtoTest {
 				.build();
 
 		WorkOrderDto workOrder2 = workOrder.toBuilder()
-				.componentList(new Component[] {comp1})
+				.componentList(Map.of(comp1.getOriginatingSystemWorkOrderId(), comp1))
 				.build();
 		
-		Gson gson = new Gson();    
+		Gson gson =  createGson();  
 	    String json = gson.toJson(workOrder);
 	    String json2= gson.toJson(workOrder2);
 	    System.out.println(json);   
@@ -159,20 +167,20 @@ public class WorkOrderDtoTest {
 	
 	
 	@Test
-	public void testCompnentAttributeDifference() throws JsonMappingException, JsonProcessingException {
+	public void testCompnentRemarkDifference() throws JsonMappingException, JsonProcessingException {
 		WorkOrderDto workOrder = createWorkOrderDto();
 		
 		Component comp1 = Component.builder()
 				.originatingSystemId("13574")
 				.originatingSystemWorkOrderId("AR123")
-				.componentRemarkList(new TypeCode[] {new TypeCode("RMK1", "TYPE0ValueUpdate"), new TypeCode("RMK3", "TYPE1Value")})
+				.componentRemarkList(Map.of("RMK1", "TYPE0ValueUpdate", "RMK3", "TYPE3Value"))
 				.build();
 		
 		WorkOrderDto workOrder2 = workOrder.toBuilder()
-				.componentList(new Component[] {comp1})
+				.componentList(Map.of(comp1.getOriginatingSystemWorkOrderId(), comp1))
 				.build();
 		
-		Gson gson = new Gson();    
+		Gson gson =  createGson();   
 	    String json = gson.toJson(workOrder);
 	    String json2= gson.toJson(workOrder2);
 	    System.out.println(json);   
@@ -196,7 +204,7 @@ public class WorkOrderDtoTest {
 				.estimatedDurationNum(1.0d)
 				.statusCd("OPEN")
 				.componentNumber(1)
-				.componentRemarkList(new TypeCode[] {new TypeCode("RMK1", "TYPE0Value"), new TypeCode("RMK2", "TYPE1Value")})
+				.componentRemarkList(Map.of("RMK1", "TYPE0Value", "RMK2", "TYPE1Value"))
 				.componentRequiredSkillList(new TeamWorkerSkill[] {new TeamWorkerSkill("COMPDST", "1.0"), new TeamWorkerSkill("COMPPOTS", "2.0")})
 				.build();
 		
@@ -211,12 +219,11 @@ public class WorkOrderDtoTest {
 		.estimatedDurationNum(3.0d)
 		.outOfServiceIndicator(true)
 		.workOrderStatusCode("OPEN")
-		.serviceIdentificationTypeCode("ACCOUNT")
-		.serviceIdentificationTxt("604 209 1111")
+		.serviceIdentification(Map.of("ACCOUNT", "123456"))
 		.requiredTechnicianList(new String[] {"X12345", "T12345"})
 		.requiredSkillList(new TeamWorkerSkill[] {new TeamWorkerSkill("DST", "1.0"), new TeamWorkerSkill("POTS", "2.0")})
-		.workOrderAttributeList(new TypeCode[] {new TypeCode("TYPE0", "TYPE0Value"), new TypeCode("TYPE1", "TYPE1Value")})
-		.componentList(new Component[] {comp1, comp2})
+		.workOrderAttributeList(Map.of("TYPE0", "TYPE0Value", "TYPE1", "TYPE1Value"))
+		.componentList(Map.of(comp1.getOriginatingSystemWorkOrderId(), comp1, comp2.getOriginatingSystemWorkOrderId(), comp2))
 		.build();
 		return workOrder;
 	}

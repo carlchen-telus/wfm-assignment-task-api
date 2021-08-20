@@ -7,7 +7,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import com.telus.workforcemgmt.dto.Difference;
 import com.telus.workforcemgmt.dto.Operation;
@@ -24,17 +23,6 @@ public class WorkOrderDifference {
 			LocalDate.class
 			);
 
-	private static final Set<String> DEEP_COMPARE_KEYS = Set.of(
-			"workOrderRemarkList", "workOrderAttributeList", "workOrderDetailList", 
-			"componentList", "componentAttributeList", "componentDetailList", "componentRemarkList"
-	);
-
-	private static final String COMPONENT = "componentList";
-	private static final String COMPONENT_KEY = "originatingSystemWorkOrderId";
-	
-	private static final String TYPE_CODE_KEY = "typeCd";
-	private static final String TYPE_CODE_VALUE= "descriptionTxt";
-	//
 	public static List<Difference> diff(Map<String, Object> newValue,
 			Map<String, Object> oldValue) {
 		return diff(newValue, oldValue, "/");
@@ -94,7 +82,7 @@ public class WorkOrderDifference {
 			differences.addAll(diff((Map<String, Object>) newValue, (Map<String, Object>) oldValue, path));
 		} 
 
-		else if (bothAreArrays(fromClass, toClass) && !requireDeepCompare(key)) {
+		else if (bothAreArrays(fromClass, toClass)) {
 			List fromArray = (ArrayList) newValue;
 			List toArray = (ArrayList) oldValue;
 						
@@ -102,33 +90,6 @@ public class WorkOrderDifference {
 				differences.add(new Difference(fromArray, toArray, path, Operation.UPDATED));
 			}
 		} 
-
-		else if (bothAreArrays(fromClass, toClass) && requireDeepCompare(key)) {
-			List<Map> fromArray = (ArrayList<Map>) newValue;
-			List<Map> toArray = (ArrayList<Map>) oldValue;
-
-			if (COMPONENT.equals(key)) {
-				differences.addAll(
-						fromArray.stream().flatMap(data -> {
-							List<Difference> res = diff(data, searchMap(toArray, COMPONENT_KEY, (String)data.get(COMPONENT_KEY)), 
-									path + (String)data.get(COMPONENT_KEY) + "/");
-							return res.stream();
-						}).collect(Collectors.toList()));
-			} else {// type code
-				differences.addAll(
-						fromArray.stream().flatMap(data -> {
-							String typeCodeDescriptionTxt = (String)data.get(TYPE_CODE_VALUE);
-							String typeCode = (String)data.get(TYPE_CODE_KEY);
-							Map toValue = searchMap(toArray, TYPE_CODE_KEY, typeCode);
-							List<Difference> typeCodeDiffs = compare(typeCodeDescriptionTxt, 
-								toValue == null?  null : toValue.get(TYPE_CODE_VALUE), 
-								path + typeCode + "/", 
-								typeCode);
-							return typeCodeDiffs.stream();
-						}).collect(Collectors.toList()));
-
-			}
-		}
 		return differences;
 	}
 
@@ -143,20 +104,17 @@ public class WorkOrderDifference {
 		if (JSON_PRIMITIVES.contains(obj.getClass())) 
 			return obj.toString();
 		else if (obj instanceof Map) {
-			return mapToString((Map)obj);
+			Map map = (Map)obj;
+			Set<String> keyset = map.keySet();
+			List<String> sorted = new ArrayList(keyset);
+			StringBuilder b = new StringBuilder();
+			sorted.stream().map(e -> e + map.get(e))
+				.forEach(b::append);;
+			return b.toString();
 		}
 		else {
 			throw new IllegalArgumentException("doesn't support type:" + obj.getClass().getName());
 		}
-	}
-	
-	private static String mapToString(Map<String, String> map) {
-		Set<String> keyset = map.keySet();
-		List<String> sorted = new ArrayList(keyset);
-		StringBuilder b = new StringBuilder();
-		sorted.stream().map(e -> e + map.get(e))
-			.forEach(b::append);;
-		return b.toString();
 	}
 	
 	private  static boolean oneIsPrimitive(Class<?> from, Class<?> to) {
@@ -169,18 +127,5 @@ public class WorkOrderDifference {
 
 	private  static boolean bothAreArrays(Class<?> from, Class<?> to) {
 		return from == ArrayList.class && to == ArrayList.class;
-	}
-
-	private  static boolean requireDeepCompare(String key) {
-		return DEEP_COMPARE_KEYS.contains(key);  
-	}
-
-	private  static Map searchMap(List<Map> listOfMap, String key, String value) {
-		for (Map m : listOfMap) {
-			if (m.containsKey(key) && m.get(key).equals(value)) {
-				return m;
-			}
-		}
-		return null;
 	}
 }
