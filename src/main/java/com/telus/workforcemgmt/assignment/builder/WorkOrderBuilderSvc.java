@@ -7,6 +7,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -101,9 +102,10 @@ public class WorkOrderBuilderSvc {
 
 	private WorkOrderBuilder build(WorkSpecification workorderSpec, WorkOrder workorder, Location location, LocalDateTime effDatetime, InputHeader header) {
 		boolean isFsa = withinFsaBauPeriod(workorder, location) && workorder.getProjectCd() == null;
+		//Derived from location FSA: 1) FSA ID not empty and work order is between FSA Ready date and FSA BAU date 2) work order is initated from FIFA() or Remedy () 3) work order service class R 4) work order has GPON component or has Voice/DSL/TTV with GPON technolgy";
+		//Specified in work order by host
 		String projectCd = isFsa ? ConstantCodes.PROJEC_FALCON : workorder.getProjectCd();
 		ProjectRequirements projectRequirements = getProjectRequirements(projectCd, workorderSpec.getWfmScopeRule().getWorkOrderCategoryCd(), header);
-		
 		CalendarProfile calendarProfile =  getCalendarProfile(location.getLocationId(), workorderSpec.getWfmScopeRule().getWorkOrderCategoryCd(), header);
 		
 		TeamWorkerSpokenLanguage teamWorkerSpokenLanguage = getTeamWorkerSpokenLanguage(location.getLocationId(), workorderSpec.getWfmScopeRule().getWorkOrderCategoryCd(), header);
@@ -113,33 +115,38 @@ public class WorkOrderBuilderSvc {
 				workorderSpec.getWfmScopeRule().getWorkOrderCategoryCd(), 
 				isFsa ? location.getFsa().getFsaName() : null, effDatetime, header);
 		
-		WorkSpecification[] jobSpecs = getJobWorkSpecification(workorderSpec, header);
-		
-		List<JobBuilder> builders = Arrays.stream(jobSpecs).map(spec -> {
-			JobBuilder builder = new JobBuilder();
-			builder.setCalendarProfile(calendarProfile);
-			builder.setProjectRequirements(projectRequirements);
-			builder.setTeamWorkerRequirements(teamWorkerRequirements);
-			builder.setTeamWorkerSpokenLanguage(teamWorkerSpokenLanguage);
-			builder.setDemandStreamSummary(getDemandStreamSummary(workorder, spec, location, effDatetime, projectCd,header));
-			builder.setJobSpecification(spec);
-			builder.setEffectiveDateTime(effDatetime);
-			builder.setWorkOrderSpecification(workorderSpec);
-			return builder;
-		}).collect(Collectors.toList());
-		
-		return WorkOrderBuilder.builder()
-				.jobBuilders(builders)
+		WorkOrderBuilder workOrderBuilder = WorkOrderBuilder.builder()
 				.location(location)
 				.workorder(workorder)
 				.workOrderSpecification(workorderSpec)
+				.calendarProfile(calendarProfile)
+				.projectRequirements(projectRequirements)
+				.teamWorkerRequirements(teamWorkerRequirements)
+				.teamWorkerSpokenLanguage(teamWorkerSpokenLanguage)
+				.projectName(projectCd)
+				.workOrderCategoryCode(workorderSpec.getWfmScopeRule().getWorkOrderCategoryCd())
 				.effectiveDateTime(effDatetime)
 				.build();
+		
+		WorkSpecification[] jobSpecs = getJobWorkSpecification(workorderSpec, header);
+		List<JobBuilder> builders = Arrays.stream(jobSpecs).map(spec -> {
+			JobBuilder builder = new JobBuilder();
+			builder.setDemandStreamCandidates(getDemandStreamSummary(workorder, spec, location, effDatetime, projectCd,header));
+			builder.setJobSpecification(spec);
+			builder.setEffectiveDateTime(effDatetime);
+			builder.init(workOrderBuilder);
+			return builder;
+		}).collect(Collectors.toList());
+		
+		workOrderBuilder.setJobBuilders(builders);
+		return workOrderBuilder;
 	}
 	
 	
-	private DemandStreamSummary getDemandStreamSummary(WorkOrder workorder, WorkSpecification spec, Location location, LocalDateTime effDt, 
+	private List<DemandStreamSummary> getDemandStreamSummary(WorkOrder workorder, WorkSpecification spec, Location location, LocalDateTime effDt, 
 			String projectCd, InputHeader header){
+		List<DemandStreamSummary> result = new LinkedList();
+		
 		DemandStreamRequest request = DemandStreamRequest.builder()
 				.customerId(workorder.getCustomerId())
 				.districtName(spec.getVirtualNavHierarchy().getDistrictNm())
@@ -148,7 +155,7 @@ public class WorkOrderBuilderSvc {
 						, Double.parseDouble(location.getGeoPoint().getLongitudeTxt())))
 				.jobTypeCd(spec.getWfmScopeRule().getJobTypeCd())
 				.locationId(Long.toString(location.getLocationId()))
-				.originalSystemId(workorder.getOriginatingSystemId())
+				.originalSystemId(workorder.getOriginatingSystemId())//TODO should use component OriginatingSystemId
 				.outOfServiceInd(workorder.isOutofServiceInd())
 				.productCd(spec.getWfmScopeRule().getProductCd())
 				.serviceAreaName(spec.getVirtualNavHierarchy().getServiceAreaNm())
@@ -162,6 +169,23 @@ public class WorkOrderBuilderSvc {
 				.workOrderCategoryCd(spec.getWfmScopeRule().getWorkOrderCategoryCd())
 				.workOrderClassificationCd(workorder.getClassificationCd())
 				.build();
+		DemandStreamSummary jobDemandStream = getDemandStreamSummary(request, header);
+		jobDemandStream.setWorkSpecificationId(spec.getId());
+		result.add(jobDemandStream);
+		
+		List<WorkSpecification> compSpecs = spec.getComponentSpecificationList();
+		if (compSpecs != null) {
+			List<DemandStreamSummary> dmSummaries = compSpecs.stream().flatMap(comSpec -> 
+				getDemandStreamSummary(workorder, comSpec, location, effDt, projectCd, header).stream())
+					.collect(Collectors.toList());
+			result.addAll(dmSummaries);
+		}
+		
+		return result;
+
+	}
+	
+	private DemandStreamSummary getDemandStreamSummary(DemandStreamRequest request, InputHeader header) {
 		try {
 			RestTemplate restTemplate = new RestTemplate();
 			HttpHeaders headers = new HttpHeaders();
